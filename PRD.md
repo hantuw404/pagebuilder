@@ -70,6 +70,45 @@ AI hanya mengubah bagian yang memang ditentukan sebagai replaceable.
 
 ---
 
+# 2A. STRICT AI STRUCTURE ANALYSIS (CLASSIFICATION-ONLY)
+
+AI **boleh** dilibatkan untuk analisis struktur, tetapi dengan batasan keras:
+
+## Yang BOLEH dilakukan AI:
+
+* Mengklasifikasi setiap elemen teks: **CONTENT** (artikel/FAQ/review asli) atau **LOCKED** (UI, template, produk, navigasi, placeholder).
+* Menentukan **scope** — daftar elemen yang boleh diganti.
+* Mengenali keberadaan FAQ, review, artikel, heading.
+
+## Yang TIDAK BOLEH dilakukan AI:
+
+* Mengubah, menambah, menghapus, atau menyusun ulang HTML.
+* Menyentuh class, ID, CSS, JavaScript, layout, animasi, struktur DOM.
+* Menulis HTML apa pun.
+* Memperluas scope di luar daftar yang disetujui.
+
+## Prinsip implementasi:
+
+```text
+AI  →  klasifikasi (indeks elemen)  →  whitelist
+code →  transformasi HTML (Cheerio) menggunakan whitelist
+```
+
+* AI hanya mengembalikan daftar indeks elemen konten (JSON).
+* Kode memvalidasi indeks tersebut terhadap DOM nyata.
+* Hanya elemen dalam whitelist yang menjadi REPLACEABLE; sisanya LOCKED.
+* Jika AI gagal / tidak tersedia → fallback ke klasifikasi rule-based (deterministik).
+* Transformasi HTML **selalu** dilakukan oleh kode, bukan AI — sehingga struktur tidak mungkin rusak.
+
+Target tetap sama:
+
+```text
+Structural similarity: 100%
+Content differences: Expected
+```
+
+---
+
 # 3. INPUT
 
 ## Required Input

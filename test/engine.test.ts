@@ -7,6 +7,7 @@ import { parseReferenceHtml } from '../src/lib/parser';
 import { analyzeReference, formatReferenceAnalysisOutput } from '../src/lib/analyzer';
 import { generateSeoContent, formatContentOutput, generateIndonesianReviewers } from '../src/lib/content-engine';
 import { analyzePageColors, toHex, colorLabel } from '../src/lib/color-analyzer';
+import { buildStructureOutline, classifyStructureWithAi, ruleBasedVerdict } from '../src/lib/structure-analyzer';
 import { executeReplacement } from '../src/lib/slot-replacer';
 import { validateClonedHtml, formatStructureDiffOutput } from '../src/lib/validator';
 import { ReplacementMap } from '../src/lib/types';
@@ -502,6 +503,8 @@ test('9. INSTRUCTION.md ↔ PRD.md Consistency Test', () => {
     { label: 'review placeholder label', pattern: /(EXAMPLE|PLACEHOLDER)/ },
     { label: 'locked elements', pattern: /class, ID, CSS, JS/i },
     { label: 'responsible gambling language', pattern: /perjudian|bertanggung jawab/i },
+    { label: 'strict structure rule', pattern: /TIDAK PERNAH mengubah HTML/i },
+    { label: 'classification-only AI', pattern: /MENGKLASIFIKASI/i },
   ];
 
   requiredRules.forEach(({ label, pattern }) => {
@@ -512,6 +515,7 @@ test('9. INSTRUCTION.md ↔ PRD.md Consistency Test', () => {
   assert.ok(/WORD COUNT PRESERVATION/i.test(prd), 'PRD must retain word count section');
   assert.ok(/REVIEW HANDLING/i.test(prd), 'PRD must retain review handling section');
   assert.ok(/FAQ HANDLING/i.test(prd), 'PRD must retain FAQ handling section');
+  assert.ok(/STRICT AI STRUCTURE ANALYSIS/i.test(prd), 'PRD must document strict AI structure analysis');
 });
 
 test('10. UI/utility text excluded from paragraph slots + per-slot word count', async () => {
@@ -744,4 +748,92 @@ test('13. Page color analysis + color remapping', async () => {
   const $orig = cheerio.load(html);
   assert.strictEqual($('style').length, $orig('style').length);
   assert.strictEqual($('script').length, $orig('script').length);
+});
+
+test('14. Strict AI structure analysis: whitelist gates content, never breaks structure', async () => {
+  // A page mixing real article + template junk (framework placeholders, UI labels).
+  const html = `<!DOCTYPE html><html lang="id"><head><title>OLDTOTO | Situs Resmi</title></head>
+<body>
+  <h1>OLDTOTO | Situs Resmi</h1>
+  <h2>Tentang OLDTOTO</h2>
+  <p>OLDTOTO adalah platform terpercaya yang melayani pengguna dengan sistem modern dan aman setiap hari.</p>
+  <h2>Habis</h2>
+  <p>{{item.name}}</p>
+  <p>{{upgrade.description}}</p>
+  <div class="faq-purple">
+    <h2>FAQ SLOT GACOR</h2>
+    <div class="faq-item">
+      <button class="faq-question"><span>Apa itu OLDTOTO?</span><span>+</span></button>
+      <div class="faq-answer"><p>OLDTOTO adalah situs terpercaya yang menyediakan layanan lengkap bagi semua member.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-question"><span>Bagaimana cara login OLDTOTO?</span><span>+</span></button>
+      <div class="faq-answer"><p>Buka link resmi OLDTOTO lalu masukkan username dan password dengan benar.</p></div>
+    </div>
+  </div>
+</body></html>`;
+
+  const { outline } = buildStructureOutline(html);
+  assert.ok(outline.length > 0, 'outline must contain candidates');
+
+  // The outline must include the FAQ question button (inside spans).
+  const faqQ = outline.find((n) => /Apa itu OLDTOTO/.test(n.text));
+  assert.ok(faqQ, 'FAQ question must be in outline');
+
+  // 1. Fallback (no API key) → rule-based verdict excludes template junk.
+  const fallback = await classifyStructureWithAi(outline, 'SAKAUTOTO', 'SAKAUTOTO | Situs', {});
+  assert.strictEqual(fallback.source, 'fallback');
+  assert.ok(fallback.contentIdx.length > 0);
+
+  // 2. Whitelist gating: only approved indices become slots.
+  //    Approve ONLY the first article paragraph + its heading by index.
+  const articleH2 = outline.find((n) => n.text === 'Tentang OLDTOTO');
+  const articleP = outline.find((n) => /platform terpercaya/.test(n.text));
+  const faqHeading = outline.find((n) => /FAQ SLOT GACOR/.test(n.text));
+  const junkH2 = outline.find((n) => n.text === 'Habis');
+
+  assert.ok(articleH2 && articleP && faqHeading && junkH2);
+
+  const whitelist = new Set<number>([articleH2!.idx, articleP!.idx, faqHeading!.idx]);
+
+  const parsed = parseReferenceHtml(html, 'https://example.com/', { contentWhitelist: whitelist });
+
+  // 3. Junk heading "Habis" is NOT a slot (excluded by whitelist).
+  const h2Texts = parsed.contentSlots.filter((s) => s.type === 'H2').map((s) => s.originalText);
+  assert.ok(!h2Texts.includes('Habis'), 'template junk heading must be locked (not a slot)');
+  assert.ok(h2Texts.includes('Tentang OLDTOTO'), 'approved heading must be a slot');
+
+  // 4. Placeholder paragraphs are NOT slots.
+  const pTexts = parsed.contentSlots.filter((s) => s.type === 'PARAGRAPH').map((s) => s.originalText);
+  assert.ok(!pTexts.some((t) => t.includes('{{')), 'placeholders must not become slots');
+
+  // 5. FAQ still detected structurally (bypasses whitelist).
+  assert.strictEqual(parsed.contentSlots.filter((s) => s.type === 'FAQ_QUESTION').length, 2);
+  assert.strictEqual(parsed.contentSlots.filter((s) => s.type === 'FAQ_ANSWER').length, 2);
+
+  // 6. The full clone keeps ALL original elements (structure 100% preserved).
+  const report = analyzeReference(parsed, 'https://example.com/', 'SAKAUTOTO | Situs', 'SAKAUTOTO');
+  const gen = await generateSeoContent(report, parsed.contentSlots, 'SAKAUTOTO', 'SAKAUTOTO | Situs');
+  const finalHtml = executeReplacement({
+    originalHtml: parsed.rawHtml,
+    replacementMap: {
+      brand: { old: 'OLDTOTO', new: 'SAKAUTOTO' },
+      title: { new: 'SAKAUTOTO | Situs' },
+      assets: {},
+      links: {},
+      contentSlots: {},
+    },
+    generatedContent: gen,
+    contentSlots: parsed.contentSlots,
+  });
+
+  const $before = cheerio.load(html);
+  const $after = cheerio.load(finalHtml);
+  assert.strictEqual($after('h2').length, $before('h2').length, 'H2 count preserved');
+  assert.strictEqual($after('p').length, $before('p').length, 'P count preserved');
+  assert.strictEqual($after('.faq-item').length, $before('.faq-item').length, 'FAQ items preserved');
+  assert.strictEqual($after('button').length, $before('button').length, 'buttons preserved');
+
+  // 7. Junk text untouched by replacement (still present, structure-safe).
+  assert.ok(finalHtml.includes('Habis') || finalHtml.includes('{{item.name}}'), 'locked junk stays in place');
 });

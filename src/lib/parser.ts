@@ -10,6 +10,7 @@ import {
   DetectedColor,
 } from './types';
 import { analyzePageColors } from './color-analyzer';
+import { STRUCTURE_CANDIDATE_SELECTOR } from './structure-analyzer';
 
 function createMetaStatus(value: string | null | undefined): MetadataStatus {
   if (value && value.trim().length > 0) {
@@ -39,8 +40,47 @@ export interface ParsedHtmlResult {
   colors: DetectedColor[];
 }
 
-export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHtmlResult {
+export interface ParseOptions {
+  /**
+   * Optional whitelist of approved content indices (values of `data-src-idx`).
+   * When provided (e.g. from the strict AI Structure Analyzer), ONLY elements
+   * whose `data-src-idx` is in this set become replaceable content slots.
+   * Everything else stays LOCKED. This guarantees the AI can never expand scope.
+   */
+  contentWhitelist?: Set<number>;
+}
+
+export function parseReferenceHtml(
+  html: string,
+  baseUrl: string = '',
+  options: ParseOptions = {}
+): ParsedHtmlResult {
   const $ = cheerio.load(html);
+  const { contentWhitelist } = options;
+
+  // Stamp a stable `data-src-idx` on every candidate element using the SAME
+  // selector and order as buildStructureOutline(), so an AI-produced whitelist
+  // of indices maps exactly to these elements. Skipped when no whitelist is used.
+  if (contentWhitelist) {
+    let idx = 0;
+    $(STRUCTURE_CANDIDATE_SELECTOR).each((_, el) => {
+      const $el = $(el);
+      if ($el.closest('script, style, noscript, template').length > 0) return;
+      const text = $el.text().replace(/\s+/g, ' ').trim();
+      if (!text || text.length < 2) return;
+      $el.attr('data-src-idx', String(idx));
+      idx++;
+    });
+  }
+
+  // Returns true if the element is allowed to become a content slot.
+  // When no whitelist is supplied, everything is allowed (default rule-based mode).
+  const isAllowed = (el: any): boolean => {
+    if (!contentWhitelist) return true;
+    const raw = $(el).attr('data-src-idx');
+    if (raw === undefined) return false;
+    return contentWhitelist.has(Number(raw));
+  };
 
   // 1. Metadata Extraction (Section 5)
   const title = $('head title').first().text() || $('title').first().text();
@@ -250,9 +290,13 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
   const contentSlots: ContentSlot[] = [];
   let slotIndex = 1;
 
+  // Block-level tags that indicate an element is a STRUCTURAL WRAPPER (not content).
+  // If a heading/slot element embeds one of these, it is a container — such as a whole
+  // <section> FAQ nested inside an <h2> — and must stay LOCKED.
+  const BLOCK_CHILD_SELECTOR =
+    'section, article, main, aside, header, footer, nav, div, ul, ol, table, details, figure, blockquote, hr, form, iframe, video, audio, canvas, svg';
+
   // Text that belongs ONLY to this element, excluding any nested element children.
-  // Critical for malformed templates where a whole <section> (e.g. FAQ) is nested
-  // inside a heading — the naive `.text()` would return the entire descendant content.
   function directText($el: cheerio.Cheerio<any>): string {
     let text = '';
     $el.contents().each((_, node: any) => {
@@ -267,20 +311,30 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
     el: any,
     type: ContentSlot['type'],
     selector: string,
-    idx: number
+    idx: number,
+    bypassWhitelist = false
   ) {
+    // AI whitelist gate: when a whitelist is active, only approved elements qualify.
+    // FAQ / Review slots rely on dedicated structural selectors, so they bypass it.
+    if (!bypassWhitelist && !isAllowed(el)) return;
+
     const $el = $(el);
 
-    // Use direct text (exclude descendants) so wrapper elements are not mistaken as content.
+    const hasBlockChildren = $el.children(BLOCK_CHILD_SELECTOR).length > 0;
     let text = directText($el);
 
-    // Skip pure wrapper elements (they own no direct text but embed block children).
-    // Those are structural containers, not content slots, and must stay LOCKED.
-    if (!text && $el.children().length > 0) return;
-
-    // For elements without element children, fall back to full text (covers <p>text</p>).
     if (!text) {
+      // No direct text of its own.
+      // - If it embeds BLOCK-level children → it is a structural wrapper (LOCKED): skip.
+      // - If it only wraps inline elements (e.g. <button><span>Question</span>+</button>)
+      //   → treat its full text as the slot content.
+      if (hasBlockChildren) return;
       text = $el.text().replace(/\s+/g, ' ').trim();
+    } else if (hasBlockChildren) {
+      // Has its own text but ALSO embeds block children → mixed wrapper.
+      // Keep only the element's own direct text (structure-safe), which is what
+      // content slots should carry; do not swallow descendant blocks.
+      // (text already = directText; nothing extra to do.)
     }
 
     if (!text || text.length < 2) return;
@@ -389,10 +443,10 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
   }
 
   faqQuestions.forEach((q, idx) => {
-    addSlot(q, 'FAQ_QUESTION', '.faq-question', idx);
+    addSlot(q, 'FAQ_QUESTION', '.faq-question', idx, true);
   });
   faqAnswers.forEach((a, idx) => {
-    addSlot(a, 'FAQ_ANSWER', '.faq-answer', idx);
+    addSlot(a, 'FAQ_ANSWER', '.faq-answer', idx, true);
   });
 
   // Tag Reviews if identified (universal class matching or star rating cards)
@@ -433,7 +487,7 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
   }
 
   reviewTexts.forEach((t, idx) => {
-    addSlot(t, 'REVIEW_TEXT', '.review-text', idx);
+    addSlot(t, 'REVIEW_TEXT', '.review-text', idx, true);
   });
 
   // Tag Paragraphs (excluding those already claimed as FAQ or Review or inside script/style/nav)
@@ -453,9 +507,34 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
     '[class*="quantity"]', '[class*="tocart"]', 'button',
   ].join(', ');
 
+  // Template/UI junk patterns that must NEVER be treated as article content:
+  // - framework placeholders:  {{item.name}}, {{ ... }}
+  // - short microcopy / labels (few words, no sentence punctuation)
+  const PLACEHOLDER_RE = /\{\{[\s\S]*?\}\}/;
+
+  function looksLikeTemplateJunk(text: string): boolean {
+    const t = text.trim();
+    if (!t) return true;
+    // Framework placeholder tokens
+    if (PLACEHOLDER_RE.test(t)) return true;
+    // Leftover mustache/curly runs
+    if (/[{}]{1,}/.test(t) && t.length < 80) return true;
+    // Very short labels without sentence structure (e.g. "Habis", "Reset", "Sound devices")
+    const words = t.split(/\s+/).filter(Boolean);
+    if (words.length <= 3 && !/[.!?]/.test(t) && t.length < 40) {
+      // Allow very short but meaningful Indonesian sentences is rare; treat as UI label.
+      return true;
+    }
+    return false;
+  }
+
   $('p').each((idx, el) => {
     const $el = $(el);
     if ($el.closest(UI_CONTEXT_SELECTOR).length > 0) {
+      return;
+    }
+    const text = $el.text().replace(/\s+/g, ' ').trim();
+    if (looksLikeTemplateJunk(text)) {
       return;
     }
     addSlot(el, 'PARAGRAPH', 'p', idx);

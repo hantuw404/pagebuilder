@@ -94,6 +94,12 @@ export default function HomePage() {
   const [links, setLinks] = useState<ExtractedLink[]>([]);
   const [detectedColors, setDetectedColors] = useState<DetectedColor[]>([]);
   const [colorReplacements, setColorReplacements] = useState<Record<string, string>>({});
+  const [useAiStructure, setUseAiStructure] = useState<boolean>(true);
+  const [structureInfo, setStructureInfo] = useState<{
+    source: 'ai' | 'fallback';
+    note?: string;
+    contentCount: number;
+  } | null>(null);
   const [activeAnalysisTab, setActiveAnalysisTab] = useState<'summary' | 'raw' | 'blueprint'>('summary');
 
   // Step 3: Generated Content
@@ -279,6 +285,15 @@ export default function HomePage() {
           newBrand,
           newTitle,
           mode: inputMode === 'manual' ? 'manual' : 'raw',
+          // Strict AI structure analysis: only when enabled + a valid key exists.
+          aiOptions:
+            useAiStructure && aiConfig.apiKey
+              ? {
+                  apiKey: aiConfig.apiKey,
+                  apiBaseUrl: aiConfig.apiBaseUrl,
+                  model: aiConfig.model,
+                }
+              : undefined,
         }),
       });
 
@@ -287,6 +302,7 @@ export default function HomePage() {
         throw new Error(data.error || 'Gagal menganalisis referensi.');
       }
 
+      setStructureInfo(data.structure || null);
       setRawHtml(data.rawHtml);
       setAnalysisReport(data.report);
       setFormattedAnalysis(data.formattedAnalysis);
@@ -722,6 +738,31 @@ export default function HomePage() {
                 </div>
               </div>
 
+              {/* Strict AI Structure Analysis toggle */}
+              <div className="mt-3 p-3.5 rounded-lg bg-slate-950 border border-slate-800">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useAiStructure}
+                    onChange={(e) => setUseAiStructure(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-indigo-600 shrink-0"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      Analisis Struktur via AI (Strict / Classification-Only)
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      AI hanya <b>mengklasifikasi</b> mana elemen konten asli (artikel/FAQ/review) dan mana yang
+                      template/UI. AI <b>tidak pernah</b> mengubah HTML — strukturnya tetap 100% dari kode.
+                      {!aiConfig.apiKey && (
+                        <span className="text-amber-400"> Butuh API key (aktifkan setelah isi key).</span>
+                      )}
+                    </p>
+                  </div>
+                </label>
+              </div>
+
               {/* Action Button */}
               <div className="mt-6">
                 <button
@@ -764,13 +805,43 @@ export default function HomePage() {
                     Target: Pertahankan 100% hierarki DOM, section order, CSS & JS.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
-                  <span className="text-xs text-slate-400">Old Brand Terdeteksi:</span>
-                  <span className="text-xs font-mono font-bold text-amber-300">
-                    {detectedOldBrand}
-                  </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {structureInfo && (
+                    <div
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold ${
+                        structureInfo.source === 'ai'
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                          : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                      }`}
+                      title={structureInfo.note || ''}
+                    >
+                      {structureInfo.source === 'ai' ? (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Analisis Struktur: AI (Strict) — {structureInfo.contentCount} elemen konten
+                        </>
+                      ) : (
+                        <>
+                          <Cpu className="w-3.5 h-3.5" />
+                          Analisis Struktur: Rule-based
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+                    <span className="text-xs text-slate-400">Old Brand Terdeteksi:</span>
+                    <span className="text-xs font-mono font-bold text-amber-300">
+                      {detectedOldBrand}
+                    </span>
+                  </div>
                 </div>
               </div>
+
+              {structureInfo?.note && (
+                <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px] font-mono">
+                  {structureInfo.note}
+                </div>
+              )}
 
               {/* Grid Metrics (PRD Step 2 checklist) */}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">

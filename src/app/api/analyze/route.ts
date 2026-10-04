@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchReferenceHtml } from '@/lib/fetcher';
 import { parseReferenceHtml } from '@/lib/parser';
 import { analyzeReference, formatReferenceAnalysisOutput } from '@/lib/analyzer';
+import { buildStructureOutline, classifyStructureWithAi } from '@/lib/structure-analyzer';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { referenceUrl, newBrand, newTitle, mode, rawHtml } = body;
+    const { referenceUrl, newBrand, newTitle, mode, rawHtml, aiOptions } = body;
 
     if (!referenceUrl && !rawHtml) {
       return NextResponse.json(
@@ -20,7 +21,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: fetchRes.error }, { status: 422 });
     }
 
-    const parsed = parseReferenceHtml(fetchRes.html, referenceUrl || '');
+    // ---------------------------------------------------------------------
+    // Strict AI Structure Analysis (classification-only, never rewrites HTML)
+    // ---------------------------------------------------------------------
+    let structureVerdict = {
+      source: 'fallback' as 'ai' | 'fallback',
+      note: undefined as string | undefined,
+      contentCount: 0,
+    };
+    let contentWhitelist: Set<number> | undefined;
+
+    if (aiOptions?.apiKey) {
+      // Build a stamped outline and let the AI classify content vs locked.
+      const { outline } = buildStructureOutline(fetchRes.html);
+      const verdict = await classifyStructureWithAi(
+        outline,
+        newBrand || '',
+        newTitle || '',
+        aiOptions
+      );
+
+      structureVerdict = {
+        source: verdict.source,
+        note: verdict.note,
+        contentCount: verdict.contentIdx.length,
+      };
+
+      // Only enforce the whitelist when the AI actually produced a usable verdict.
+      if (verdict.source === 'ai' && verdict.contentIdx.length > 0) {
+        contentWhitelist = new Set(verdict.contentIdx);
+      }
+    }
+
+    const parsed = parseReferenceHtml(fetchRes.html, referenceUrl || '', { contentWhitelist });
     const report = analyzeReference(
       parsed,
       referenceUrl || 'Manual Input Source',
@@ -39,6 +72,7 @@ export async function POST(req: NextRequest) {
       detectedOldBrand: parsed.detectedOldBrand,
       formattedAnalysis,
       rawHtml: parsed.rawHtml,
+      structure: structureVerdict,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

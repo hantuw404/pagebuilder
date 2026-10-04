@@ -9,7 +9,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Tests](https://img.shields.io/badge/tests-13%20passing-22c55e?style=for-the-badge&logo=githubactions&logoColor=white)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-14%20passing-22c55e?style=for-the-badge&logo=githubactions&logoColor=white)](#-testing)
 
 </div>
 
@@ -39,6 +39,7 @@ You give it a reference page (URL or raw HTML), a new brand, and a new title. It
 | 🌐 **Dual Extraction** | Raw HTML fetch (View Source) + manual HTML paste fallback |
 | 🔎 **Universal FAQ Parser** | Detects `.faq-box`, `.faq-card`, `<details>`, `<strong>` questions, and star-rated reviews |
 | 🎯 **Content Slot System** | Each replaceable element stamped with a DOM target — no blind string matching |
+| 🛡️ **Strict AI Structure Analysis** | AI only *classifies* content vs locked (classification-only); code always transforms HTML |
 | 🪞 **Title Mirror Sync** | Replaces *every* repetition of the old title (title, H1, H2, banners, loose text nodes) |
 | 🗺️ **Smart Asset & Link Mapping** | Auto-groups identical URLs, counts occurrences, single mapping per URL |
 | 🎲 **Random Indonesian Reviewers** | Every generation yields unique UPPERCASE names (`RIZKY PRATAMA — BANDUNG`) |
@@ -161,7 +162,7 @@ You can view & edit it directly from the UI — click the **`INSTRUCTION.md`** b
 npm test
 ```
 
-**13 regression tests** cover:
+**14 regression tests** cover:
 
 | # | Test |
 | --- | --- |
@@ -178,6 +179,7 @@ npm test
 | 11 | Repeated old-title replacement in loose text nodes |
 | 12 | Engine reporting + visible AI-failure fallback |
 | 13 | Page color analysis + color remapping |
+| 14 | Strict AI structure analysis (whitelist gating, structure-safe) |
 
 ---
 
@@ -207,6 +209,7 @@ page-cloner-v3/
 │       ├── analyzer.ts           # SEO + structure + keywords + blueprint
 │       ├── content-engine.ts     # deterministic + LLM content generation
 │       ├── color-analyzer.ts     # dominant color detection + labels
+│       ├── structure-analyzer.ts # strict AI structure classification (whitelist)
 │       ├── slot-replacer.ts      # structure-safe replacement engine
 │       ├── validator.ts          # structural similarity diff
 │       ├── exporter.ts           # zip bundling
