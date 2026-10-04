@@ -643,3 +643,32 @@ test('11. Repeated Old-Title Replacement in Loose Text Nodes (megasicbo case)', 
   const $ = cheerio.load(html);
   assert.strictEqual($final('body script').length, $('body script').length, 'body scripts must be preserved');
 });
+
+test('12. Engine reporting: deterministic by default, visible fallback on AI failure', async () => {
+  const html = `<!DOCTYPE html><html lang="id"><head><title>OLDTOTO | Situs Resmi</title></head>
+<body><h1>OLDTOTO | Situs Resmi</h1><h2>Tentang OLDTOTO</h2>
+<p>Paragraf pertama tentang OLDTOTO dan layanan yang disediakan untuk semua pengguna setia setiap harinya.</p>
+<p>Paragraf kedua menjelaskan keunggulan sistem OLDTOTO yang cepat aman dan terpercaya bagi seluruh member.</p>
+</body></html>`;
+
+  const parsed = parseReferenceHtml(html, 'https://example.com/');
+  const report = analyzeReference(parsed, 'https://example.com/', 'SAKAUTOTO | Situs Terbaik', 'SAKAUTOTO');
+
+  // 1. No API key → deterministic engine, with a note.
+  const noKey = await generateSeoContent(report, parsed.contentSlots, 'SAKAUTOTO', 'SAKAUTOTO | Situs Terbaik');
+  assert.strictEqual(noKey.engine, 'deterministic', 'no API key must use deterministic engine');
+  assert.ok(noKey.engineNote && /api key belum diisi/i.test(noKey.engineNote), 'must explain missing API key');
+
+  // 2. Bogus API key + unreachable endpoint → falls back to deterministic, but reports REASON.
+  const badKey = await generateSeoContent(report, parsed.contentSlots, 'SAKAUTOTO', 'SAKAUTOTO | Situs Terbaik', {
+    apiKey: 'sk-bogus-key-1234567890',
+    apiBaseUrl: 'http://127.0.0.1:9/v1', // closed port → guaranteed connection failure
+    model: 'gpt-4o-mini',
+  });
+  assert.strictEqual(badKey.engine, 'deterministic', 'must fall back to deterministic engine');
+  assert.ok(badKey.engineNote, 'fallback MUST include a reason note (no silent fallback)');
+  assert.ok(/gagal/i.test(badKey.engineNote), `fallback note should mention failure, got: ${badKey.engineNote}`);
+
+  // 3. The content is still valid & structure-compliant even in fallback.
+  assert.strictEqual(badKey.paragraphs.length, parsed.contentSlots.filter((s) => s.type === 'PARAGRAPH').length);
+});

@@ -9,7 +9,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Tests](https://img.shields.io/badge/tests-11%20passing-22c55e?style=for-the-badge&logo=githubactions&logoColor=white)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-12%20passing-22c55e?style=for-the-badge&logo=githubactions&logoColor=white)](#-testing)
 
 </div>
 
@@ -160,7 +160,7 @@ You can view & edit it directly from the UI — click the **`INSTRUCTION.md`** b
 npm test
 ```
 
-**11 regression tests** cover:
+**12 regression tests** cover:
 
 | # | Test |
 | --- | --- |
@@ -175,6 +175,7 @@ npm test
 | 9 | `INSTRUCTION.md` ↔ `PRD.md` consistency |
 | 10 | UI/utility text excluded from paragraph slots |
 | 11 | Repeated old-title replacement in loose text nodes |
+| 12 | Engine reporting + visible AI-failure fallback |
 
 ---
 

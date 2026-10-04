@@ -115,36 +115,45 @@ export async function generateSeoContent(
 
   const targetWordCount = report.structure.totalWords || 450;
 
+  const deterministic = (note?: string): GeneratedContent => {
+    const content = generateDeterministicContent(
+      report,
+      h1Slots,
+      h2Slots,
+      h3Slots,
+      pSlots,
+      faqQSlots.length,
+      reviewSlots.length,
+      newBrand,
+      newTitle,
+      targetWordCount
+    );
+    return { ...content, engine: 'deterministic', engineNote: note };
+  };
+
   // If API key is provided and valid, call LLM
-  if (options?.apiKey && options.apiKey.trim().length > 5) {
+  const hasApiKey = Boolean(options?.apiKey && options.apiKey.trim().length > 5);
+  if (hasApiKey) {
     try {
-      const llmResult = await callLlmEngine(
-        report,
-        contentSlots,
-        newBrand,
-        newTitle,
-        options
-      );
+      const llmResult = await callLlmEngine(report, contentSlots, newBrand, newTitle, options!);
       if (llmResult) {
-        return llmResult;
+        return { ...llmResult, engine: 'llm' };
       }
+      // LLM returned nothing usable — fall back, but TELL the user why.
+      return deterministic('LLM tidak mengembalikan konten yang bisa dipakai. Memakai engine offline.');
     } catch (e) {
-      console.warn('LLM call failed, falling back to deterministic engine:', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      // eslint-disable-next-line no-console
+      console.warn('LLM call failed, falling back to deterministic engine:', msg);
+      return deterministic(`Panggilan AI gagal: ${msg}. Memakai engine offline.`);
     }
   }
 
-  // Deterministic Fallback Engine (Guarantees 100% count match and word count preservation within +/-5%)
-  return generateDeterministicContent(
-    report,
-    h1Slots,
-    h2Slots,
-    h3Slots,
-    pSlots,
-    faqQSlots.length,
-    reviewSlots.length,
-    newBrand,
-    newTitle,
-    targetWordCount
+  // Deterministic engine (no API key configured).
+  return deterministic(
+    options?.apiKey
+      ? 'API key tidak valid (terlalu pendek). Memakai engine offline.'
+      : 'API key belum diisi. Memakai engine offline.'
   );
 }
 
@@ -416,32 +425,60 @@ Output WAJIB berupa JSON valid murni (tanpa teks pembuka atau code block markdow
   "reviews": [{"author": "string", "text": "string", "rating": 5, "isPlaceholder": true}]
 }`;
 
-  const res = await fetch(`${endpoint.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${options.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      response_format: { type: 'json_object' },
-    }),
-  });
+  const url = `${endpoint.replace(/\/$/, '')}/chat/completions`;
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${options.apiKey}`,
+  };
+
+  // Some OpenAI-compatible providers reject `response_format` (HTTP 400). We try with
+  // it first, then retry once WITHOUT it if the server complains.
+  const baseBody: Record<string, unknown> = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.7,
+  };
+
+  const doFetch = async (body: Record<string, unknown>) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    try {
+      return await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  let res = await doFetch({ ...baseBody, response_format: { type: 'json_object' } });
 
   if (!res.ok) {
-    throw new Error(`LLM Error HTTP ${res.status}`);
+    const errText = await res.text().catch(() => '');
+    // Retry without response_format if the provider doesn't support it.
+    if (/response_format|json_object|json mode|unsupported|invalid.*format/i.test(errText) || res.status === 400) {
+      res = await doFetch(baseBody);
+      if (!res.ok) {
+        const retryText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} — ${extractApiError(retryText)}`);
+      }
+    } else {
+      throw new Error(`HTTP ${res.status} — ${extractApiError(errText)}`);
+    }
   }
 
   const json = await res.json();
-  const rawText = json.choices?.[0]?.message?.content;
-  if (!rawText) return null;
+  const rawText: string | undefined = json.choices?.[0]?.message?.content;
+  if (!rawText || !rawText.trim()) return null;
 
-  const parsed = JSON.parse(rawText);
+  const parsed = parseLooseJson(rawText);
+  if (!parsed) return null;
 
   // Normalise reviewer names to UPPERCASE regardless of what the model returned.
   if (Array.isArray(parsed.reviews)) {
@@ -456,6 +493,55 @@ Output WAJIB berupa JSON valid murni (tanpa teks pembuka atau code block markdow
     wordCount: report.structure.totalWords,
     wordCountMatchPercent: 98,
   };
+}
+
+/** Extracts a concise error message from an OpenAI-compatible error body. */
+function extractApiError(text: string): string {
+  if (!text) return 'unknown error';
+  try {
+    const j = JSON.parse(text);
+    return j.error?.message || j.message || text.slice(0, 200);
+  } catch {
+    return text.slice(0, 200);
+  }
+}
+
+/**
+ * Parses model output into JSON even when it is wrapped in markdown fences or
+ * surrounded by extra prose (some models ignore the "JSON only" instruction).
+ */
+function parseLooseJson(text: string): any | null {
+  const trimmed = text.trim();
+
+  // 1. Direct parse
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    /* continue */
+  }
+
+  // 2. Strip markdown code fences ```json ... ```
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) {
+    try {
+      return JSON.parse(fence[1].trim());
+    } catch {
+      /* continue */
+    }
+  }
+
+  // 3. Extract the first balanced { ... } block
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    } catch {
+      /* continue */
+    }
+  }
+
+  return null;
 }
 
 export function formatContentOutput(content: GeneratedContent): string {

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Globe,
   Sparkles,
+  Cpu,
   Layers,
   Image as ImageIcon,
   Link as LinkIcon,
@@ -1034,7 +1035,18 @@ export default function HomePage() {
                 </div>
 
                 {/* Word count & Structure Check Badges */}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {generatedContent.engine === 'llm' ? (
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Engine: AI ({aiConfig.model || 'LLM'})
+                    </div>
+                  ) : (
+                    <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5" />
+                      Engine: Offline (Deterministic)
+                    </div>
+                  )}
                   <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     Word Count: ~{generatedContent.wordCount} kata ({generatedContent.wordCountMatchPercent}% match)
@@ -1044,6 +1056,21 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Engine fallback notice — explains why AI wasn't used */}
+              {generatedContent.engine === 'deterministic' && generatedContent.engineNote && (
+                <div className="mt-4 p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <span className="font-semibold">Konten dibuat memakai engine offline.</span>{' '}
+                    <span className="text-amber-300/90 font-mono">{generatedContent.engineNote}</span>
+                    <div className="mt-1 text-[11px] text-amber-300/70">
+                      Buka &quot;Pengaturan AI&quot; di header, pastikan API key &amp; model benar, lalu klik
+                      &quot;Test Koneksi&quot;. Generate ulang konten setelahnya.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Sub tabs */}
               <div className="mt-4 flex border-b border-slate-800 text-xs overflow-x-auto">

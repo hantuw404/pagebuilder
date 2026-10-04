@@ -113,6 +113,10 @@ export interface GeneratedContent {
   reviews: Array<{ author?: string; text: string; rating?: number; isPlaceholder?: boolean }>;
   wordCount: number;
   wordCountMatchPercent: number;
+  /** Which engine actually produced the content. */
+  engine?: 'llm' | 'deterministic';
+  /** Human-readable note, e.g. the fallback reason when LLM was requested but failed. */
+  engineNote?: string;
 }
 
 export interface ReplacementMap {
