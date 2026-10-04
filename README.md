@@ -9,7 +9,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Tests](https://img.shields.io/badge/tests-12%20passing-22c55e?style=for-the-badge&logo=githubactions&logoColor=white)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-13%20passing-22c55e?style=for-the-badge&logo=githubactions&logoColor=white)](#-testing)
 
 </div>
 
@@ -42,7 +42,8 @@ You give it a reference page (URL or raw HTML), a new brand, and a new title. It
 | 🪞 **Title Mirror Sync** | Replaces *every* repetition of the old title (title, H1, H2, banners, loose text nodes) |
 | 🗺️ **Smart Asset & Link Mapping** | Auto-groups identical URLs, counts occurrences, single mapping per URL |
 | 🎲 **Random Indonesian Reviewers** | Every generation yields unique UPPERCASE names (`RIZKY PRATAMA — BANDUNG`) |
-| 🖥️ **Interactive Side-by-Side Diff** | Compare original vs clone, filter by element type, dual live preview |
+| 🎨 **Page Recolor** | Detects dominant colors; remap any color page-wide via color picker |
+| 🖥️ **Interactive Side-by-Side Diff** | Compare original vs clone, filter by element type, dual live preview (S/M/L/XL + fullscreen) |
 | 🤖 **Bring Your Own AI** | OpenRouter, OpenAI, Groq, DeepSeek, or local Ollama — or run fully offline |
 | 📦 **Flexible Export** | Download `index.html` only, or full `.zip` with `replacement-map.json` |
 | 🛡️ **Integrity Guardrails** | Never invents metadata, never adds sections, never touches scripts |
@@ -160,7 +161,7 @@ You can view & edit it directly from the UI — click the **`INSTRUCTION.md`** b
 npm test
 ```
 
-**12 regression tests** cover:
+**13 regression tests** cover:
 
 | # | Test |
 | --- | --- |
@@ -176,6 +177,7 @@ npm test
 | 10 | UI/utility text excluded from paragraph slots |
 | 11 | Repeated old-title replacement in loose text nodes |
 | 12 | Engine reporting + visible AI-failure fallback |
+| 13 | Page color analysis + color remapping |
 
 ---
 
@@ -204,6 +206,7 @@ page-cloner-v3/
 │       ├── parser.ts             # DOM, metadata, assets, links, slots
 │       ├── analyzer.ts           # SEO + structure + keywords + blueprint
 │       ├── content-engine.ts     # deterministic + LLM content generation
+│       ├── color-analyzer.ts     # dominant color detection + labels
 │       ├── slot-replacer.ts      # structure-safe replacement engine
 │       ├── validator.ts          # structural similarity diff
 │       ├── exporter.ts           # zip bundling

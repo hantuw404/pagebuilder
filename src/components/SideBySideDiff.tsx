@@ -16,7 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { ContentSlot, GeneratedContent, ExtractedAsset, ExtractedLink, ValidationReport } from '@/lib/types';
+import { ContentSlot, GeneratedContent, ExtractedAsset, ExtractedLink, ValidationReport, DetectedColor } from '@/lib/types';
 
 interface SideBySideDiffProps {
   detectedOldBrand: string;
@@ -31,10 +31,12 @@ interface SideBySideDiffProps {
   assetReplacements: Record<string, string>;
   links: ExtractedLink[];
   linkReplacements: Record<string, string>;
+  detectedColors?: DetectedColor[];
+  colorReplacements?: Record<string, string>;
   validationReport: ValidationReport;
 }
 
-type FilterCategory = 'all' | 'brand-meta' | 'headings' | 'paragraphs' | 'faq' | 'reviews' | 'assets' | 'links' | 'locked';
+type FilterCategory = 'all' | 'brand-meta' | 'headings' | 'paragraphs' | 'faq' | 'reviews' | 'assets' | 'links' | 'colors' | 'locked';
 
 export default function SideBySideDiff({
   detectedOldBrand,
@@ -49,6 +51,8 @@ export default function SideBySideDiff({
   assetReplacements,
   links,
   linkReplacements,
+  detectedColors = [],
+  colorReplacements = {},
   validationReport,
 }: SideBySideDiffProps) {
   const [activeCategory, setActiveCategory] = useState<FilterCategory>('all');
@@ -64,6 +68,9 @@ export default function SideBySideDiff({
   const pSlots = contentSlots.filter((s) => s.type === 'PARAGRAPH');
   const faqQSlots = contentSlots.filter((s) => s.type === 'FAQ_QUESTION');
   const reviewSlots = contentSlots.filter((s) => s.type === 'REVIEW_TEXT');
+  const changedColors = detectedColors.filter(
+    (c) => colorReplacements[c.hex] && colorReplacements[c.hex].toLowerCase() !== c.hex.toLowerCase()
+  );
 
   return (
     <div className="space-y-4">
@@ -81,6 +88,7 @@ export default function SideBySideDiff({
           { id: 'reviews', label: `Reviews (${generatedContent.reviews.length})` },
           { id: 'assets', label: `Assets (${assets.length})` },
           { id: 'links', label: `Links (${links.length})` },
+          { id: 'colors', label: `Warna (${changedColors.length}/${detectedColors.length})` },
           { id: 'locked', label: 'CSS / JS (Locked)' },
         ].map((c) => (
           <button
@@ -383,6 +391,46 @@ export default function SideBySideDiff({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* 9b. COLORS */}
+        {(activeCategory === 'all' || activeCategory === 'colors') && detectedColors.length > 0 && (
+          <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
+            <div className="bg-slate-900/80 px-4 py-2 border-b border-slate-800 flex items-center justify-between text-xs">
+              <span className="font-mono font-semibold text-slate-300">WARNA HALAMAN</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-500/10 text-pink-400 border border-pink-500/20">
+                {changedColors.length} DIGANTI / {detectedColors.length} TERDETEKSI
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 p-4">
+              {detectedColors.map((color) => {
+                const newColor = colorReplacements[color.hex] || '';
+                const changed = newColor && newColor.toLowerCase() !== color.hex.toLowerCase();
+                return (
+                  <div
+                    key={color.hex}
+                    className={`rounded-lg border p-2 flex items-center gap-2 text-[11px] font-mono ${
+                      changed ? 'border-pink-500/40 bg-pink-500/5' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="w-6 h-6 rounded border border-slate-600 shrink-0" style={{ backgroundColor: color.hex }} />
+                    {changed && (
+                      <>
+                        <ArrowRight className="w-3 h-3 text-slate-500 shrink-0" />
+                        <div className="w-6 h-6 rounded border border-slate-600 shrink-0" style={{ backgroundColor: newColor }} />
+                      </>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-slate-300 truncate">{color.label}</div>
+                      <div className="text-slate-500 truncate">
+                        {changed ? `${color.hex} → ${newColor}` : color.hex}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

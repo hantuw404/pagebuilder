@@ -119,6 +119,15 @@ export interface GeneratedContent {
   engineNote?: string;
 }
 
+export interface DetectedColor {
+  /** Normalised hex value (lowercase, e.g. "#eab308"). */
+  hex: string;
+  /** How many times the color appears in the document. */
+  occurrences: number;
+  /** Human-friendly label for common colors (e.g. "Kuning"). */
+  label: string;
+}
+
 export interface ReplacementMap {
   brand: {
     old: string;
@@ -130,6 +139,8 @@ export interface ReplacementMap {
   assets: Record<string, string>;
   links: Record<string, string>;
   contentSlots: Record<string, string>;
+  /** Map of original color hex -> new color hex (both lowercase, e.g. "#eab308"). */
+  colors?: Record<string, string>;
 }
 
 export interface ValidationCheckItem {

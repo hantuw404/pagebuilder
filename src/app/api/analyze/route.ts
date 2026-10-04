@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
       assets: parsed.assets,
       links: parsed.links,
       contentSlots: parsed.contentSlots,
+      colors: parsed.colors,
       detectedOldBrand: parsed.detectedOldBrand,
       formattedAnalysis,
       rawHtml: parsed.rawHtml,

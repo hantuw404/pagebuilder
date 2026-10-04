@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { ContentSlot, GeneratedContent, ReplacementMap } from './types';
+import { toHex } from './color-analyzer';
 
 export interface ExecuteReplacementOptions {
   originalHtml: string;
@@ -419,6 +420,102 @@ export function executeReplacement(options: ExecuteReplacementOptions): string {
     const bodyNode = $('body').get(0);
     if (bodyNode) {
       walkTextNodes(bodyNode);
+    }
+  }
+
+  // 6.1 Color Remapping (page recolor)
+  // Replace every occurrence of a mapped color (in inline styles, <style> blocks,
+  // presentational attributes and SVG fill/stroke) with the user's new color.
+  // CSS/JS *logic* is preserved; only the color literals change.
+  const colorMap = replacementMap.colors || {};
+  if (Object.keys(colorMap).length > 0) {
+    // Build normalised map: oldHex -> newHex (both lowercase #rrggbb).
+    const normMap = new Map<string, string>();
+    for (const [oldColor, newColor] of Object.entries(colorMap)) {
+      if (!newColor || !newColor.trim()) continue;
+      const oldHex = toHex(oldColor);
+      const newHex = toHex(newColor);
+      if (oldHex && newHex && oldHex !== newHex) {
+        normMap.set(oldHex, newHex);
+      }
+    }
+
+    if (normMap.size > 0) {
+      // Replace color literals inside a CSS/text chunk, preserving surrounding syntax.
+      const replaceInText = (text: string): string => {
+        if (!text || !/#|rgb/i.test(text)) return text;
+        let out = text;
+
+        // hex literals: #abc, #abcd, #aabbcc, #aabbccdd
+        out = out.replace(/#[0-9a-fA-F]{3,8}\b/g, (match) => {
+          const hex = toHex(match);
+          if (hex && normMap.has(hex)) {
+            // Preserve alpha suffix if the original had one (8-digit or 4-digit).
+            const body = match.replace('#', '');
+            const alpha =
+              body.length === 8 ? body.slice(6) : body.length === 4 ? body.slice(3) : '';
+            const newHex = normMap.get(hex)!;
+            return alpha ? `#${newHex.slice(1)}${alpha}` : newHex;
+          }
+          return match;
+        });
+
+        // rgb()/rgba() literals
+        out = out.replace(/rgba?\([^)]*\)/gi, (match) => {
+          const hex = toHex(match);
+          if (hex && normMap.has(hex)) {
+            const newHex = normMap.get(hex)!;
+            const r = parseInt(newHex.slice(1, 3), 16);
+            const g = parseInt(newHex.slice(3, 5), 16);
+            const b = parseInt(newHex.slice(5, 7), 16);
+            // Preserve alpha if the original was rgba().
+            const alphaMatch = match.match(/,\s*([\d.]+)\s*\)$/);
+            if (/^rgba/i.test(match) && alphaMatch) {
+              return `rgba(${r}, ${g}, ${b}, ${alphaMatch[1]})`;
+            }
+            return `rgb(${r}, ${g}, ${b})`;
+          }
+          return match;
+        });
+
+        return out;
+      };
+
+      // <style> blocks
+      $('style').each((_, el) => {
+        const current = $(el).html();
+        if (current) {
+          const next = replaceInText(current);
+          if (next !== current) $(el).text(next);
+        }
+      });
+
+      // Inline style attributes
+      $('[style]').each((_, el) => {
+        const current = $(el).attr('style');
+        if (current) {
+          const next = replaceInText(current);
+          if (next !== current) $(el).attr('style', next);
+        }
+      });
+
+      // Presentational attributes + SVG
+      $('[bgcolor]').each((_, el) => {
+        const hex = toHex($(el).attr('bgcolor') || '');
+        if (hex && normMap.has(hex)) $(el).attr('bgcolor', normMap.get(hex)!);
+      });
+      $('[color]').each((_, el) => {
+        const hex = toHex($(el).attr('color') || '');
+        if (hex && normMap.has(hex)) $(el).attr('color', normMap.get(hex)!);
+      });
+      $('svg [fill]').each((_, el) => {
+        const hex = toHex($(el).attr('fill') || '');
+        if (hex && normMap.has(hex)) $(el).attr('fill', normMap.get(hex)!);
+      });
+      $('svg [stroke]').each((_, el) => {
+        const hex = toHex($(el).attr('stroke') || '');
+        if (hex && normMap.has(hex)) $(el).attr('stroke', normMap.get(hex)!);
+      });
     }
   }
 

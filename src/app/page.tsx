@@ -5,6 +5,9 @@ import {
   Globe,
   Sparkles,
   Cpu,
+  Palette,
+  Maximize2,
+  Minimize2,
   Layers,
   Image as ImageIcon,
   Link as LinkIcon,
@@ -35,6 +38,7 @@ import {
   GeneratedContent,
   ReplacementMap,
   ValidationReport,
+  DetectedColor,
 } from '@/lib/types';
 
 export default function HomePage() {
@@ -88,6 +92,8 @@ export default function HomePage() {
   const [contentSlots, setContentSlots] = useState<ContentSlot[]>([]);
   const [assets, setAssets] = useState<ExtractedAsset[]>([]);
   const [links, setLinks] = useState<ExtractedLink[]>([]);
+  const [detectedColors, setDetectedColors] = useState<DetectedColor[]>([]);
+  const [colorReplacements, setColorReplacements] = useState<Record<string, string>>({});
   const [activeAnalysisTab, setActiveAnalysisTab] = useState<'summary' | 'raw' | 'blueprint'>('summary');
 
   // Step 3: Generated Content
@@ -110,7 +116,20 @@ export default function HomePage() {
   const [validationReport, setValidationReport] = useState<ValidationReport | null>(null);
   const [formattedDiff, setFormattedDiff] = useState<string>('');
   const [activePreviewTab, setActivePreviewTab] = useState<'diff' | 'live' | 'html' | 'map'>('diff');
+  const [previewHeight, setPreviewHeight] = useState<number>(720);
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = useState<boolean>(false);
   const [copiedNotification, setCopiedNotification] = useState<string>('');
+
+  // Active color mapping: only colors the user actually changed (non-empty + different).
+  const activeColorMap = Object.entries(colorReplacements).reduce<Record<string, string>>(
+    (acc, [oldHex, newHex]) => {
+      if (newHex && newHex.trim() && newHex.toLowerCase() !== oldHex.toLowerCase()) {
+        acc[oldHex] = newHex;
+      }
+      return acc;
+    },
+    {}
+  );
 
   // Computed Filtered Assets (Step 4)
   const filteredAssets = assets.filter((asset) => {
@@ -274,6 +293,8 @@ export default function HomePage() {
       setContentSlots(data.contentSlots);
       setAssets(data.assets);
       setLinks(data.links);
+      setDetectedColors(data.colors || []);
+      setColorReplacements({});
       setDetectedOldBrand(data.detectedOldBrand || data.report.detectedOldBrand);
 
       // Initialize replacements defaults
@@ -356,6 +377,7 @@ export default function HomePage() {
         assets: assetReplacements,
         links: linkReplacements,
         contentSlots: {},
+        colors: activeColorMap,
       };
 
       const res = await fetch('/api/clone', {
@@ -394,6 +416,7 @@ export default function HomePage() {
         assets: assetReplacements,
         links: linkReplacements,
         contentSlots: {},
+        colors: activeColorMap,
       };
 
       const res = await fetch('/api/export', {
@@ -1751,6 +1774,144 @@ export default function HomePage() {
                 </div>
               </div>
 
+              {/* ===== Color Remapping ===== */}
+              {detectedColors.length > 0 && (
+                <div className="bg-slate-950 rounded-lg border border-slate-800 p-4 mb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h3 className="text-xs font-mono uppercase text-slate-300 font-semibold flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-pink-400" />
+                      Ganti Warna Halaman ({detectedColors.length} warna dominan terdeteksi)
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={loading || Object.keys(activeColorMap).length === 0}
+                        onClick={handleExecuteClone}
+                        className="text-[11px] bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
+                      >
+                        {loading ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Menerapkan...
+                          </>
+                        ) : (
+                          <>
+                            <Palette className="w-3.5 h-3.5" />
+                            Terapkan Warna ({Object.keys(activeColorMap).length})
+                          </>
+                        )}
+                      </button>
+                      {Object.values(colorReplacements).filter(Boolean).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setColorReplacements({})}
+                          className="text-[11px] text-rose-400 hover:text-rose-300 font-mono underline"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mb-3">
+                    Warna diganti di seluruh inline style, blok <code className="text-pink-300">&lt;style&gt;</code>, atribut warna, dan SVG.
+                    Klik kotak warna untuk memilih warna baru, atau isi kode hex langsung.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {detectedColors.map((color) => {
+                      const newColor = colorReplacements[color.hex] || '';
+                      const isChanged = newColor && newColor.toLowerCase() !== color.hex.toLowerCase();
+                      return (
+                        <div
+                          key={color.hex}
+                          className={`rounded-lg border p-2.5 flex items-center gap-3 transition ${
+                            isChanged ? 'border-pink-500/40 bg-pink-500/5' : 'border-slate-800 bg-slate-900/40'
+                          }`}
+                        >
+                          {/* Original swatch */}
+                          <div className="flex flex-col items-center gap-1 shrink-0">
+                            <div
+                              className="w-9 h-9 rounded-md border border-slate-600 shadow-inner"
+                              style={{ backgroundColor: color.hex }}
+                              title={color.hex}
+                            />
+                            <span className="text-[9px] font-mono text-slate-500">ASLI</span>
+                          </div>
+
+                          <ArrowRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+
+                          {/* New color controls */}
+                          <div className="flex flex-col gap-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={newColor || color.hex}
+                                onChange={(e) =>
+                                  setColorReplacements((prev) => ({ ...prev, [color.hex]: e.target.value }))
+                                }
+                                className="w-9 h-9 rounded-md border border-slate-600 bg-transparent cursor-pointer p-0"
+                                title="Pilih warna baru"
+                              />
+                              <input
+                                type="text"
+                                value={newColor}
+                                onChange={(e) =>
+                                  setColorReplacements((prev) => ({ ...prev, [color.hex]: e.target.value }))
+                                }
+                                placeholder={color.hex}
+                                className="w-full min-w-0 bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] font-mono text-slate-100 focus:outline-none focus:border-pink-500"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-400">
+                              <span>
+                                {color.label} · <span className="text-slate-300">{color.hex}</span> · {color.occurrences}×
+                              </span>
+                              {isChanged && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setColorReplacements((prev) => {
+                                      const next = { ...prev };
+                                      delete next[color.hex];
+                                      return next;
+                                    })
+                                  }
+                                  className="text-rose-400 hover:text-rose-300"
+                                >
+                                  Batalkan
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-mono">Terapkan cepat ke semua:</span>
+                    {['#e11d48', '#2563eb', '#16a34a', '#9333ea', '#ea580c', '#0d9488'].map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          const next: Record<string, string> = {};
+                          detectedColors.forEach((dc) => {
+                            next[dc.hex] = c;
+                          });
+                          setColorReplacements(next);
+                        }}
+                        className="w-6 h-6 rounded border border-slate-600 hover:scale-110 transition"
+                        style={{ backgroundColor: c }}
+                        title={`Ganti semua warna jadi ${c}`}
+                      />
+                    ))}
+                    <span className="text-[10px] text-slate-500 ml-1">
+                      (akan menimpa pilihan di atas)
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Structure Check Table (Section 34 PRD) */}
               <div className="bg-slate-950 rounded-lg border border-slate-800 p-4 mb-4">
                 <h3 className="text-xs font-mono uppercase text-slate-300 font-semibold mb-3 flex items-center gap-2">
@@ -1851,12 +2012,52 @@ export default function HomePage() {
                     assetReplacements={assetReplacements}
                     links={links}
                     linkReplacements={linkReplacements}
+                    detectedColors={detectedColors}
+                    colorReplacements={colorReplacements}
                     validationReport={validationReport}
                   />
                 )}
 
                 {activePreviewTab === 'live' && (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
+                    {/* Enlarge / fullscreen controls */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
+                          <Maximize2 className="w-3.5 h-3.5" /> Ukuran preview:
+                        </span>
+                        {[
+                          { label: 'S', h: 540 },
+                          { label: 'M', h: 720 },
+                          { label: 'L', h: 900 },
+                          { label: 'XL', h: 1200 },
+                        ].map((opt) => (
+                          <button
+                            key={opt.label}
+                            type="button"
+                            onClick={() => setPreviewHeight(opt.h)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                              previewHeight === opt.h
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsPreviewFullscreen(true)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />
+                          Layar Penuh
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {/* Left: Original Reference Frame */}
                       <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900 flex flex-col shadow-lg">
@@ -1872,7 +2073,8 @@ export default function HomePage() {
                         <iframe
                           srcDoc={rawHtml}
                           title="Original Reference Preview"
-                          className="w-full h-[540px] bg-white border-0"
+                          style={{ height: `${previewHeight}px` }}
+                          className="w-full bg-white border-0"
                           sandbox="allow-same-origin allow-scripts"
                         />
                       </div>
@@ -1891,7 +2093,8 @@ export default function HomePage() {
                         <iframe
                           srcDoc={clonedHtml}
                           title="Cloned HTML Live Preview"
-                          className="w-full h-[540px] bg-white border-0"
+                          style={{ height: `${previewHeight}px` }}
+                          className="w-full bg-white border-0"
                           sandbox="allow-same-origin allow-scripts"
                         />
                       </div>
@@ -2007,6 +2210,77 @@ export default function HomePage() {
         isOpen={isInstructionModalOpen}
         onClose={() => setIsInstructionModalOpen(false)}
       />
+
+      {/* Fullscreen Side-by-Side Preview */}
+      {isPreviewFullscreen && (
+        <div className="fixed inset-0 z-[60] bg-slate-950 flex flex-col">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900">
+            <div className="flex items-center gap-3">
+              <Maximize2 className="w-5 h-5 text-indigo-400" />
+              <span className="font-bold text-white text-sm">Perbandingan Layar Penuh</span>
+              <span className="text-xs text-slate-400 font-mono">
+                {detectedOldBrand} &rarr; {newBrand}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {[
+                { label: 'S', h: 540 },
+                { label: 'M', h: 720 },
+                { label: 'L', h: 900 },
+                { label: 'XL', h: 1200 },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => setPreviewHeight(opt.h)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    previewHeight === opt.h
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setIsPreviewFullscreen(false)}
+                className="ml-2 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5"
+              >
+                <Minimize2 className="w-3.5 h-3.5" /> Keluar
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 p-3 overflow-hidden">
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900 flex flex-col">
+              <div className="bg-slate-950 px-3.5 py-2 border-b border-slate-800 text-xs font-mono font-bold text-slate-300 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
+                Original Referensi ({detectedOldBrand})
+              </div>
+              <iframe
+                srcDoc={rawHtml}
+                title="Original Fullscreen"
+                style={{ height: `${previewHeight}px` }}
+                className="w-full flex-1 bg-white border-0"
+                sandbox="allow-same-origin allow-scripts"
+              />
+            </div>
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900 flex flex-col">
+              <div className="bg-slate-950 px-3.5 py-2 border-b border-slate-800 text-xs font-mono font-bold text-emerald-400 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                Hasil Clone ({newBrand})
+              </div>
+              <iframe
+                srcDoc={clonedHtml}
+                title="Cloned Fullscreen"
+                style={{ height: `${previewHeight}px` }}
+                className="w-full flex-1 bg-white border-0"
+                sandbox="allow-same-origin allow-scripts"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

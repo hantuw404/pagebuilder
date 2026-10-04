@@ -7,7 +7,9 @@ import {
   ContentSlot,
   AssetRole,
   BlueprintItem,
+  DetectedColor,
 } from './types';
+import { analyzePageColors } from './color-analyzer';
 
 function createMetaStatus(value: string | null | undefined): MetadataStatus {
   if (value && value.trim().length > 0) {
@@ -34,6 +36,7 @@ export interface ParsedHtmlResult {
   rawHtml: string;
   domTreeOutline: string[];
   additionalElements: string[];
+  colors: DetectedColor[];
 }
 
 export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHtmlResult {
@@ -499,6 +502,9 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
   if ($('.badge, [class*="badge"]').length > 0) additionalElements.push('Badges');
   if ($('.cta, [class*="cta"], a[class*="btn"]').length > 0) additionalElements.push('CTA Buttons');
 
+  // 8. Page color analysis (dominant colors for the color remapper)
+  const colors = analyzePageColors(html);
+
   return {
     metadata,
     assets,
@@ -511,6 +517,7 @@ export function parseReferenceHtml(html: string, baseUrl: string = ''): ParsedHt
     rawHtml: $.html(),
     domTreeOutline,
     additionalElements,
+    colors,
   };
 }
 

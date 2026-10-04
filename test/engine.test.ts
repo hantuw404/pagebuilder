@@ -6,6 +6,7 @@ import path from 'node:path';
 import { parseReferenceHtml } from '../src/lib/parser';
 import { analyzeReference, formatReferenceAnalysisOutput } from '../src/lib/analyzer';
 import { generateSeoContent, formatContentOutput, generateIndonesianReviewers } from '../src/lib/content-engine';
+import { analyzePageColors, toHex, colorLabel } from '../src/lib/color-analyzer';
 import { executeReplacement } from '../src/lib/slot-replacer';
 import { validateClonedHtml, formatStructureDiffOutput } from '../src/lib/validator';
 import { ReplacementMap } from '../src/lib/types';
@@ -671,4 +672,76 @@ test('12. Engine reporting: deterministic by default, visible fallback on AI fai
 
   // 3. The content is still valid & structure-compliant even in fallback.
   assert.strictEqual(badKey.paragraphs.length, parsed.contentSlots.filter((s) => s.type === 'PARAGRAPH').length);
+});
+
+test('13. Page color analysis + color remapping', async () => {
+  // Color helpers
+  assert.strictEqual(toHex('#eab308'), '#eab308');
+  assert.strictEqual(toHex('#EA8'), '#eeaa88');
+  assert.strictEqual(toHex('rgb(234, 179, 8)'), '#eab308');
+  assert.strictEqual(toHex('yellow'), '#ffff00');
+  assert.strictEqual(toHex('rgba(0,0,0,0)'), null, 'fully transparent ignored');
+  assert.strictEqual(colorLabel('#eab308'), 'Kuning');
+  assert.strictEqual(colorLabel('#000000'), 'Hitam');
+  assert.strictEqual(colorLabel('#ffffff'), 'Putih');
+
+  const html = `<!DOCTYPE html><html lang="id"><head>
+<title>OLDTOTO | Situs Resmi</title>
+<style>
+  .hero { background: #eab308; color: #111111; border: 2px solid rgb(234, 179, 8); }
+  .btn { background-color: #eab308; }
+</style>
+</head>
+<body>
+  <h1 style="color:#eab308">OLDTOTO</h1>
+  <div class="cta" style="background:#eab308; color: rgb(234, 179, 8)">Daftar</div>
+  <svg><path fill="#eab308" d="M0 0"/></svg>
+  <script>var brand = "OLDTOTO";</script>
+</body></html>`;
+
+  // 1. Analyzer detects the dominant color (yellow #eab308) and labels it.
+  const colors = analyzePageColors(html);
+  const yellow = colors.find((c) => c.hex === '#eab308');
+  assert.ok(yellow, 'must detect #eab308');
+  assert.strictEqual(yellow!.label, 'Kuning');
+  assert.ok(yellow!.occurrences >= 5, `expected several occurrences, got ${yellow!.occurrences}`);
+
+  // 2. Replacement: remap yellow -> blue across CSS, inline styles and SVG.
+  const parsed = parseReferenceHtml(html, 'https://example.com/');
+  const report = analyzeReference(parsed, 'https://example.com/', 'SAKAUTOTO | Situs Terbaik', 'SAKAUTOTO');
+  const gen = await generateSeoContent(report, parsed.contentSlots, 'SAKAUTOTO', 'SAKAUTOTO | Situs Terbaik');
+
+  const finalHtml = executeReplacement({
+    originalHtml: parsed.rawHtml,
+    replacementMap: {
+      brand: { old: 'OLDTOTO', new: 'SAKAUTOTO' },
+      title: { new: 'SAKAUTOTO | Situs Terbaik' },
+      assets: {},
+      links: {},
+      contentSlots: {},
+      colors: { '#eab308': '#2563eb' },
+    },
+    generatedContent: gen,
+    contentSlots: parsed.contentSlots,
+  });
+
+  const $ = cheerio.load(finalHtml);
+
+  // hex instances replaced
+  assert.ok(!finalHtml.includes('#eab308'), 'original hex must be gone');
+  assert.ok(finalHtml.includes('#2563eb'), 'new color must be present');
+
+  // <style> block recolored
+  assert.ok($('style').text().includes('#2563eb'), '<style> must be recolored');
+
+  // rgb() literal recolored
+  assert.ok(!/rgb\(\s*234\s*,\s*179\s*,\s*8\s*\)/.test(finalHtml), 'rgb() literal must be recolored');
+
+  // SVG fill recolored
+  assert.strictEqual($('svg path').attr('fill'), '#2563eb');
+
+  // Structure preserved (style/script counts unchanged)
+  const $orig = cheerio.load(html);
+  assert.strictEqual($('style').length, $orig('style').length);
+  assert.strictEqual($('script').length, $orig('script').length);
 });
